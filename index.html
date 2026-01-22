@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Flappy Bird</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            overflow: hidden;
+            background: linear-gradient(180deg, #4ec0ca 0%, #1ca3c4 100%);
+            font-family: 'Arial', sans-serif;
+            touch-action: none;
+        }
+
+        #gameCanvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            image-rendering: pixelated;
+        }
+
+        #scoreDisplay {
+            position: absolute;
+            top: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 48px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 3px 3px 0 #000;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.8);
+            padding: 30px;
+            border-radius: 20px;
+            text-align: center;
+            display: none;
+            z-index: 20;
+        }
+
+        #gameOver h2 {
+            color: #ff6b6b;
+            font-size: 36px;
+            margin-bottom: 20px;
+        }
+
+        #gameOver p {
+            color: white;
+            font-size: 24px;
+            margin: 10px 0;
+        }
+
+        #restartBtn {
+            margin-top: 20px;
+            padding: 15px 40px;
+            font-size: 20px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        #restartBtn:active {
+            background: #45a049;
+        }
+
+        #startScreen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 15;
+        }
+
+        #startScreen h1 {
+            color: white;
+            font-size: 48px;
+            text-shadow: 3px 3px 0 #000;
+            margin-bottom: 20px;
+        }
+
+        #startScreen p {
+            color: white;
+            font-size: 24px;
+            text-shadow: 2px 2px 0 #000;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="scoreDisplay">0</div>
+    <div id="startScreen">
+        <h1>Flappy Bird</h1>
+        <p>Нажми, чтобы начать!</p>
+    </div>
+    <div id="gameOver">
+        <h2>Игра окончена!</h2>
+        <p>Очки: <span id="finalScore">0</span></p>
+        <p>Лучший результат: <span id="bestScore">0</span></p>
+        <button id="restartBtn">Играть снова</button>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.enableClosingConfirmation();
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const gameOverDiv = document.getElementById('gameOver');
+        const finalScoreSpan = document.getElementById('finalScore');
+        const bestScoreSpan = document.getElementById('bestScore');
+        const restartBtn = document.getElementById('restartBtn');
+        const startScreen = document.getElementById('startScreen');
+
+        // Адаптация под размер экрана
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Игровые переменные
+        let gameStarted = false;
+        let gameOver = false;
+        let score = 0;
+        let bestScore = parseInt(localStorage.getItem('bestScore')) || 0;
+        let frames = 0;
+
+        // Создаем изображение игрока из загруженного фото
+        const playerImg = new Image();
+        playerImg.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPGNpcmNsZSBjeD0iMjUiIGN5PSIyNSIgcj0iMjAiIGZpbGw9IiNmZmQ3MDAiIHN0cm9rZT0iIzAwMCIgc3Ryb2tlLXdpZHRoPSIyIi8+CiAgPGNpcmNsZSBjeD0iMTgiIGN5PSIyMCIgcj0iMyIgZmlsbD0iIzAwMCIvPgogIDxjaXJjbGUgY3g9IjMyIiBjeT0iMjAiIHI9IjMiIGZpbGw9IiMwMDAiLz4KICA8cGF0aCBkPSJNIDE1IDMwIFEgMjUgMzUgMzUgMzAiIHN0cm9rZT0iIzAwMCIgc3Ryb2tlLXdpZHRoPSIyIiBmaWxsPSJub25lIi8+Cjwvc3ZnPg==';
+
+        // Игрок (мяч с фото)
+        const player = {
+            x: canvas.width / 4,
+            y: canvas.height / 2,
+            radius: 25,
+            velocity: 0,
+            gravity: 0.5,
+            jump: -10,
+            rotation: 0
+        };
+
+        // Трубы
+        const pipes = [];
+        const pipeWidth = 60;
+        const pipeGap = 180;
+        const pipeSpeed = 3;
+
+        function createPipe() {
+            const minHeight = 50;
+            const maxHeight = canvas.height - pipeGap - minHeight;
+            const height = Math.random() * (maxHeight - minHeight) + minHeight;
+            
+            pipes.push({
+                x: canvas.width,
+                topHeight: height,
+                bottomY: height + pipeGap,
+                passed: false
+            });
+        }
+
+        // Управление
+        function handleJump() {
+            if (!gameStarted) {
+                gameStarted = true;
+                startScreen.style.display = 'none';
+                createPipe();
+            }
+            if (!gameOver) {
+                player.velocity = player.jump;
+            }
+        }
+
+        canvas.addEventListener('click', handleJump);
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            handleJump();
+        });
+
+        restartBtn.addEventListener('click', () => {
+            resetGame();
+        });
+
+        function resetGame() {
+            gameOver = false;
+            gameStarted = false;
+            score = 0;
+            frames = 0;
+            pipes.length = 0;
+            player.y = canvas.height / 2;
+            player.velocity = 0;
+            player.rotation = 0;
+            gameOverDiv.style.display = 'none';
+            startScreen.style.display = 'block';
+            scoreDisplay.textContent = '0';
+        }
+
+        function updatePlayer() {
+            if (!gameStarted) return;
+
+            player.velocity += player.gravity;
+            player.y += player.velocity;
+            player.rotation = Math.min(Math.max(player.velocity * 3, -30), 90);
+
+            // Проверка границ
+            if (player.y + player.radius > canvas.height || player.y - player.radius < 0) {
+                endGame();
+            }
+        }
+
+        function updatePipes() {
+            if (!gameStarted || gameOver) return;
+
+            // Создание новых труб
+            if (frames % 90 === 0) {
+                createPipe();
+            }
+
+            // Обновление и удаление труб
+            for (let i = pipes.length - 1; i >= 0; i--) {
+                pipes[i].x -= pipeSpeed;
+
+                // Проверка прохождения трубы
+                if (!pipes[i].passed && pipes[i].x + pipeWidth < player.x - player.radius) {
+                    pipes[i].passed = true;
+                    score++;
+                    scoreDisplay.textContent = score;
+                }
+
+                // Удаление труб за экраном
+                if (pipes[i].x + pipeWidth < 0) {
+                    pipes.splice(i, 1);
+                }
+            }
+        }
+
+        function checkCollision() {
+            for (let pipe of pipes) {
+                // Проверка столкновения с трубами
+                if (player.x + player.radius > pipe.x && 
+                    player.x - player.radius < pipe.x + pipeWidth) {
+                    if (player.y - player.radius < pipe.topHeight || 
+                        player.y + player.radius > pipe.bottomY) {
+                        endGame();
+                    }
+                }
+            }
+        }
+
+        function endGame() {
+            if (gameOver) return;
+            gameOver = true;
+            
+            // Обновление лучшего результата
+            if (score > bestScore) {
+                bestScore = score;
+                localStorage.setItem('bestScore', bestScore);
+            }
+
+            // Отправка результата в бот
+            tg.sendData(score.toString());
+
+            // Показываем экран окончания игры
+            finalScoreSpan.textContent = score;
+            bestScoreSpan.textContent = bestScore;
+            gameOverDiv.style.display = 'block';
+        }
+
+        function drawPlayer() {
+            ctx.save();
+            ctx.translate(player.x, player.y);
+            ctx.rotate(player.rotation * Math.PI / 180);
+            
+            // Рисуем круг с изображением
+            ctx.beginPath();
+            ctx.arc(0, 0, player.radius, 0, Math.PI * 2);
+            ctx.fillStyle = '#ff6b6b';
+            ctx.fill();
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            
+            // Рисуем изображение поверх круга
+            if (playerImg.complete) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(0, 0, player.radius - 2, 0, Math.PI * 2);
+                ctx.clip();
+                ctx.drawImage(playerImg, -player.radius, -player.radius, player.radius * 2, player.radius * 2);
+                ctx.restore();
+            }
+            
+            ctx.restore();
+        }
+
+        function drawPipes() {
+            ctx.fillStyle = '#5cb85c';
+            ctx.strokeStyle = '#2d5f2d';
+            ctx.lineWidth = 3;
+
+            for (let pipe of pipes) {
+                // Верхняя труба
+                ctx.fillRect(pipe.x, 0, pipeWidth, pipe.topHeight);
+                ctx.strokeRect(pipe.x, 0, pipeWidth, pipe.topHeight);
+
+                // Нижняя труба
+                ctx.fillRect(pipe.x, pipe.bottomY, pipeWidth, canvas.height - pipe.bottomY);
+                ctx.strokeRect(pipe.x, pipe.bottomY, pipeWidth, canvas.height - pipe.bottomY);
+
+                // Края труб
+                const capHeight = 30;
+                const capWidth = pipeWidth + 10;
+                
+                ctx.fillRect(pipe.x - 5, pipe.topHeight - capHeight, capWidth, capHeight);
+                ctx.strokeRect(pipe.x - 5, pipe.topHeight - capHeight, capWidth, capHeight);
+                
+                ctx.fillRect(pipe.x - 5, pipe.bottomY, capWidth, capHeight);
+                ctx.strokeRect(pipe.x - 5, pipe.bottomY, capWidth, capHeight);
+            }
+        }
+
+        function drawBackground() {
+            // Небо
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, '#4ec0ca');
+            gradient.addColorStop(1, '#1ca3c4');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Облака
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            for (let i = 0; i < 5; i++) {
+                const x = (frames * 0.5 + i * 200) % (canvas.width + 100);
+                const y = 50 + i * 40;
+                ctx.beginPath();
+                ctx.arc(x, y, 30, 0, Math.PI * 2);
+                ctx.arc(x + 30, y, 40, 0, Math.PI * 2);
+                ctx.arc(x + 60, y, 30, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Земля
+            ctx.fillStyle = '#decc5a';
+            ctx.fillRect(0, canvas.height - 100, canvas.width, 100);
+            ctx.fillStyle = '#8bc34a';
+            ctx.fillRect(0, canvas.height - 110, canvas.width, 10);
+        }
+
+        function gameLoop() {
+            frames++;
+
+            drawBackground();
+            drawPipes();
+            drawPlayer();
+
+            if (gameStarted && !gameOver) {
+                updatePlayer();
+                updatePipes();
+                checkCollision();
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Запуск игры
+        gameLoop();
+    </script>
+</body>
+</html>
