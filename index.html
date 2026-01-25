@@ -23,6 +23,9 @@
     </div>
 
     <script>
+        setTimeout(() => {
+  console.log("Проверка через 2 сек: Telegram.WebApp?", !!window.Telegram?.WebApp);
+}, 2000);
         console.log("[GAME] Скрипт загружен");
 
         const canvas = document.getElementById('gameCanvas');
